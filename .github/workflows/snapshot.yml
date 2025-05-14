@@ -1,0 +1,35 @@
+name: Capture Snapshots
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:  # allows manual run
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run snapshot script
+        run: |
+          python snapshot.py
+
+      - name: Commit and push new snapshots
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add snapshots/*.jpg
+          git commit -m "Add snapshots at $(date -u +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
+          git push
