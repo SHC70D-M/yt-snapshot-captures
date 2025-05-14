@@ -3,7 +3,7 @@ name: Capture Livestream Snapshots
 on:
   schedule:
     - cron: "*/5 * * * *"  # Every 5 minutes
-  workflow_dispatch:       # Allows manual triggering
+  workflow_dispatch:
 
 jobs:
   snapshot:
@@ -29,27 +29,26 @@ jobs:
 
       - name: Capture snapshots
         run: |
-          mkdir -p snapshots
-          TIMESTAMP=$(date +'%m-%d-%H%M')
-          mkdir -p snapshots/$TIMESTAMP
+          declare -A STREAMS
+          STREAMS["YT_Poland"]="https://www.youtube.com/watch?v=S2L-hzuRX0g"
+          STREAMS["YT_Mechelen1"]="https://www.youtube.com/watch?v=xQKCnSsATK0"
+          STREAMS["YT_Mechelen2"]="https://www.youtube.com/watch?v=m5HWzP2wNGE"
+          STREAMS["YT_Lokeren"]="https://www.youtube.com/watch?v=HUeaYuBLNNQ"
 
-          STREAMS=(
-            "https://www.youtube.com/watch?v=S2L-hzuRX0g"
-            "https://www.youtube.com/watch?v=xQKCnSsATK0"
-            "https://www.youtube.com/watch?v=m5HWzP2wNGE"
-            "https://www.youtube.com/watch?v=HUeaYuBLNNQ"
-          )
+          DATE=$(date +'%m-%d')
+          TIME=$(date +'%H%M')
 
-          for i in "${!STREAMS[@]}"; do
+          for NAME in "${!STREAMS[@]}"; do
+            mkdir -p "$NAME/$DATE"
             yt-dlp --cookies cookies.txt --no-warnings --quiet --skip-download \
               --write-thumbnail --convert-thumbnails jpg \
-              -o "snapshots/$TIMESTAMP/cam_$i.%(ext)s" "${STREAMS[$i]}"
+              -o "$NAME/$DATE/$TIME.%(ext)s" "${STREAMS[$NAME]}"
           done
 
       - name: Commit and push snapshots
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add snapshots/
-          git commit -m "Add snapshots for $TIMESTAMP" || echo "Nothing to commit"
+          git add YT_*/
+          git commit -m "Add snapshots for $(date +'%m-%d %H:%M')" || echo "Nothing to commit"
           git push
