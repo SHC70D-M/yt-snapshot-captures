@@ -1,66 +1,77 @@
-name: Capture Snapshots and Upload
+name: Capture YouTube Snapshots
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # Every 5 minutes
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
   snapshot:
     runs-on: ubuntu-latest
 
+    env:
+      YT_COOKIES: ${{ secrets.YT_COOKIES }}
+      RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG }}
+
     steps:
-      - name: Checkout repo
+      - name: Set up repo
         uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.x'
 
-      - name: Install yt-dlp
-        run: python -m pip install -U yt-dlp
-
-      - name: Install ffmpeg
-        uses: FedericoCarboni/setup-ffmpeg@v2
-
-      - name: Capture snapshots
+      - name: Install dependencies
         run: |
-          TIMESTAMP=$(date +'%H%M')
-          DATE=$(date +'%m-%d')
-          mkdir -p YT_Poland/$DATE YT_Mechelen1/$DATE YT_Mechelen2/$DATE YT_Lokeren/$DATE
-          yt-dlp -f best -o "YT_Poland/$DATE/${TIMESTAMP}.mp4" https://www.youtube.com/watch?v=S2L-hzuRX0g --download-sections "*00:00-00:01"
-          yt-dlp -f best -o "YT_Mechelen1/$DATE/${TIMESTAMP}.mp4" https://www.youtube.com/watch?v=xQKCnSsATK0 --download-sections "*00:00-00:01"
-          yt-dlp -f best -o "YT_Mechelen2/$DATE/${TIMESTAMP}.mp4" https://www.youtube.com/watch?v=m5HWzP2wNGE --download-sections "*00:00-00:01"
-          yt-dlp -f best -o "YT_Lokeren/$DATE/${TIMESTAMP}.mp4" https://www.youtube.com/watch?v=HUeaYuBLNNQ --download-sections "*00:00-00:01"
-
-      - name: Save rclone config to file
-        run: |
-          echo '${{ secrets.RCLONE_CONFIG }}' > gdrive.json
-
-      - name: Install rclone
-        run: |
+          pip install yt-dlp
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
           curl https://rclone.org/install.sh | sudo bash
 
-      - name: Configure rclone
+      - name: Create timestamped folders
         run: |
-          echo "[gdrive]" > rclone.conf
-          echo "type = drive" >> rclone.conf
-          echo "scope = drive" >> rclone.conf
-          echo "service_account_file = $(pwd)/gdrive.json" >> rclone.conf
+          DATE=$(date +'%m-%d')
+          TIMESTAMP=$(date +'%H%M')
+          mkdir -p YT_Poland/$DATE
+          mkdir -p YT_Mechelen1/$DATE
+          mkdir -p YT_Mechelen2/$DATE
+          mkdir -p YT_Lokeren/$DATE
 
-      - name: Upload to Google Drive
+      - name: Capture snapshots from YouTube
         run: |
-          rclone --config rclone.conf copy YT_Poland gdrive:YT_Snapshots/YT_Poland
-          rclone --config rclone.conf copy YT_Mechelen1 gdrive:YT_Snapshots/YT_Mechelen1
-          rclone --config rclone.conf copy YT_Mechelen2 gdrive:YT_Snapshots/YT_Mechelen2
-          rclone --config rclone.conf copy YT_Lokeren gdrive:YT_Snapshots/YT_Lokeren
+          DATE=$(date +'%m-%d')
+          TIMESTAMP=$(date +'%H%M')
 
-      - name: Clean up repo and push
+          echo "$YT_COOKIES" > cookies.txt
+
+          yt-dlp --cookies cookies.txt -f bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4 --download-sections "*00:00-00:01" -o "YT_Poland/$DATE/${TIMESTAMP}.mp4" https://www.youtube.com/watch?v=S2L-hzuRX0g
+          yt-dlp --cookies cookies.txt -f bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4 --download-sections "*00:00-00:01" -o "YT_Mechelen1/$DATE/${TIMESTAMP}.mp4" https://www.youtube.com/watch?v=xQKCnSsATK0
+          yt-dlp --cookies cookies.txt -f bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4 --download-sections "*00:00-00:01" -o "YT_Mechelen2/$DATE/${TIMESTAMP}.mp4" https://www.youtube.com/watch?v=m5HWzP2wNGE
+          yt-dlp --cookies cookies.txt -f bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4 --download-sections "*00:00-00:01" -o "YT_Lokeren/$DATE/${TIMESTAMP}.mp4" https://www.youtube.com/watch?v=HUeaYuBLNNQ
+
+          rm cookies.txt
+
+      - name: Extract frame and convert to JPEG
         run: |
-          rm -rf YT_*
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add -u
-          git commit -m "Cleanup snapshots $(date)"
-          git push || echo "Nothing to commit"
+          for folder in YT_*; do
+            for date in $folder/*; do
+              for vid in $date/*.mp4; do
+                jpg=${vid%.mp4}.jpg
+                ffmpeg -y -i "$vid" -frames:v 1 "$jpg"
+                rm "$vid"
+              done
+            done
+          done
+
+      - name: Upload to Google Drive using rclone
+        run: |
+          echo "$RCLONE_CONFIG" > rclone.conf
+          rclone copy YT_Poland gdrive:YT_Snapshots/YT_Poland --config=rclone.conf
+          rclone copy YT_Mechelen1 gdrive:YT_Snapshots/YT_Mechelen1 --config=rclone.conf
+          rclone copy YT_Mechelen2 gdrive:YT_Snapshots/YT_Mechelen2 --config=rclone.conf
+          rclone copy YT_Lokeren gdrive:YT_Snapshots/YT_Lokeren --config=rclone.conf
+
+      - name: Cleanup local files
+        run: |
+          rm -rf YT_Poland YT_Mechelen1 YT_Mechelen2 YT_Lokeren rclone.conf
