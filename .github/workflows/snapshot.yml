@@ -1,8 +1,8 @@
-name: Capture Livestream Snapshots
+name: Capture Snapshots and Upload
 
 on:
   schedule:
-    - cron: "*/5 * * * *"  # Every 5 minutes
+    - cron: '*/5 * * * *'  # Every 5 minutes
   workflow_dispatch:
 
 jobs:
@@ -16,39 +16,51 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: '3.10'
 
-      - name: Install yt-dlp and ffmpeg
-        run: |
-          sudo apt update
-          sudo apt install -y ffmpeg
-          pip install -U yt-dlp
+      - name: Install yt-dlp
+        run: python -m pip install -U yt-dlp
 
-      - name: Save cookies to file
-        run: echo "${{ secrets.YT_COOKIES }}" > cookies.txt
+      - name: Install ffmpeg
+        uses: FedericoCarboni/setup-ffmpeg@v2
 
       - name: Capture snapshots
         run: |
-          declare -A STREAMS
-          STREAMS["YT_Poland"]="https://www.youtube.com/watch?v=S2L-hzuRX0g"
-          STREAMS["YT_Mechelen1"]="https://www.youtube.com/watch?v=xQKCnSsATK0"
-          STREAMS["YT_Mechelen2"]="https://www.youtube.com/watch?v=m5HWzP2wNGE"
-          STREAMS["YT_Lokeren"]="https://www.youtube.com/watch?v=HUeaYuBLNNQ"
-
+          TIMESTAMP=$(date +'%H%M')
           DATE=$(date +'%m-%d')
-          TIME=$(date +'%H%M')
+          mkdir -p YT_Poland/$DATE YT_Mechelen1/$DATE YT_Mechelen2/$DATE YT_Lokeren/$DATE
+          yt-dlp -f best -o "YT_Poland/$DATE/${TIMESTAMP}.mp4" https://www.youtube.com/watch?v=S2L-hzuRX0g --download-sections "*00:00-00:01"
+          yt-dlp -f best -o "YT_Mechelen1/$DATE/${TIMESTAMP}.mp4" https://www.youtube.com/watch?v=xQKCnSsATK0 --download-sections "*00:00-00:01"
+          yt-dlp -f best -o "YT_Mechelen2/$DATE/${TIMESTAMP}.mp4" https://www.youtube.com/watch?v=m5HWzP2wNGE --download-sections "*00:00-00:01"
+          yt-dlp -f best -o "YT_Lokeren/$DATE/${TIMESTAMP}.mp4" https://www.youtube.com/watch?v=HUeaYuBLNNQ --download-sections "*00:00-00:01"
 
-          for NAME in "${!STREAMS[@]}"; do
-            mkdir -p "$NAME/$DATE"
-            yt-dlp --cookies cookies.txt --no-warnings --quiet --skip-download \
-              --write-thumbnail --convert-thumbnails jpg \
-              -o "$NAME/$DATE/$TIME.%(ext)s" "${STREAMS[$NAME]}"
-          done
-
-      - name: Commit and push snapshots
+      - name: Save rclone config to file
         run: |
+          echo '${{ secrets.RCLONE_CONFIG }}' > gdrive.json
+
+      - name: Install rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+
+      - name: Configure rclone
+        run: |
+          echo "[gdrive]" > rclone.conf
+          echo "type = drive" >> rclone.conf
+          echo "scope = drive" >> rclone.conf
+          echo "service_account_file = $(pwd)/gdrive.json" >> rclone.conf
+
+      - name: Upload to Google Drive
+        run: |
+          rclone --config rclone.conf copy YT_Poland gdrive:YT_Snapshots/YT_Poland
+          rclone --config rclone.conf copy YT_Mechelen1 gdrive:YT_Snapshots/YT_Mechelen1
+          rclone --config rclone.conf copy YT_Mechelen2 gdrive:YT_Snapshots/YT_Mechelen2
+          rclone --config rclone.conf copy YT_Lokeren gdrive:YT_Snapshots/YT_Lokeren
+
+      - name: Clean up repo and push
+        run: |
+          rm -rf YT_*
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add YT_*/
-          git commit -m "Add snapshots for $(date +'%m-%d %H:%M')" || echo "Nothing to commit"
-          git push
+          git add -u
+          git commit -m "Cleanup snapshots $(date)"
+          git push || echo "Nothing to commit"
