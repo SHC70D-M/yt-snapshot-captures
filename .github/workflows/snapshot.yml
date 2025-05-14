@@ -18,12 +18,14 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Install yt-dlp
-        run: pip install -U yt-dlp
+      - name: Install yt-dlp and ffmpeg
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg
+          pip install -U yt-dlp
 
       - name: Save cookies to file
-        run: |
-          echo "${{ secrets.YT_COOKIES }}" > cookies.txt
+        run: echo "${{ secrets.YT_COOKIES }}" > cookies.txt
 
       - name: Capture snapshots
         run: |
